@@ -10,15 +10,15 @@ import CoreBluetooth
 
 public struct CellInfoModel: Identifiable {
     public let id: UUID
-    let name: String
-    let lastFourCardNumber: String
-    let objectID: String
-    let userID: String
-    let peripheral: CBPeripheral
-    var isConnected: Bool
+    public let name: String
+    public let lastFourCardNumber: String
+    public let objectID: String
+    public let userID: String
+    public let peripheral: CBPeripheral
+    public var isConnected: Bool
     
     
-    static func makeInfo(
+    public static func makeInfo(
         fullString: String,
         peripheral: CBPeripheral,
         isConnected: Bool
