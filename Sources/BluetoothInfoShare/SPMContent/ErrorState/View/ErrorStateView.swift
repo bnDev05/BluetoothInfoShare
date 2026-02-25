@@ -19,7 +19,7 @@ private extension ErrorStateView {
     }
 }
 
-struct ErrorStateView: View {
+public struct ErrorStateView: View {
     let errorMessage: String?
     let errorStatus: CBManagerState
     @StateObject private var viewModel: ErrorStateViewModel
@@ -30,7 +30,7 @@ struct ErrorStateView: View {
         _viewModel = StateObject(wrappedValue: ErrorStateViewModel(errorState: errorStatus))
     }
     
-    var body: some View {
+    public var body: some View {
         ZStack {
             VStack(spacing: 18) {
                 Constants.errorIcon
@@ -60,11 +60,11 @@ struct ErrorStateView: View {
                 } label: {
                     Text(Constants.goToSettings)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(Color.defaultWhiteText)
+                        .foregroundColor(.white)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical)
                 }
-                .background(Color.defaultButton)
+                .background(Color.accentColor)
                 .clipShape(Capsule())
                 .padding(.horizontal)
                 .padding(.bottom, Constants.bottomPadding)

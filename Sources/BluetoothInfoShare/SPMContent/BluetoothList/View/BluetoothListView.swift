@@ -17,7 +17,7 @@ private extension BluetoothListView {
     }
 }
 
-struct BluetoothListView: View {
+public struct BluetoothListView: View {
     @Environment(\.managedObjectContext) private var viewContext
 //    @Environment(\.dependencies) private var dependencies
     @StateObject private var viewModel: BluetoothListViewModel
@@ -27,7 +27,7 @@ struct BluetoothListView: View {
 //        self.dataSharingManager = dependencies.dataSharingManager
         _viewModel = StateObject(wrappedValue: BluetoothListViewModel(bluetoothManager: BluetoothManager.shared))
     }
-    var body: some View {
+    public var body: some View {
         ZStack {
             content
         }
@@ -93,6 +93,5 @@ struct BluetoothListView: View {
 #Preview {
     NavigationView {
         BluetoothListView(/*dependencies: DependencyContainer()*/)
-            .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
     }
 }

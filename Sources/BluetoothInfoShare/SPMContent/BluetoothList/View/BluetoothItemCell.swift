@@ -20,8 +20,7 @@ private extension BluetoothItemCell {
     }
 }
 
-struct BluetoothItemCell: View {
-    @Environment(\.dependencies) private var dependencies
+public struct BluetoothItemCell: View {
     @StateObject private var viewModel: BluetoothCellViewModel
     @Environment(\.presentationMode) private var presentationMode
     let onCellTap: (() -> Void)
@@ -31,14 +30,14 @@ struct BluetoothItemCell: View {
         _viewModel = StateObject(wrappedValue: BluetoothCellViewModel(item: item, bluetoothManager: bluetoothManager))
     }
     
-    var body: some View {
+    public var body: some View {
         ZStack {
             Color.clear
             content
         }
         .clipShape(Rectangle())
         .sheet(isPresented: $viewModel.didTapTransfer, content: {
-            QuickShareReceivedView(byTapCell: true, message: ShareableMessage.makeMixed(sender: viewModel.item.name, cardNumber: viewModel.item.lastFourCardNumber), onDismiss: nil)
+//            QuickShareReceivedView(byTapCell: true, message: ShareableMessage.makeMixed(sender: viewModel.item.name, cardNumber: viewModel.item.lastFourCardNumber), onDismiss: nil)
         })
     }
     
