@@ -8,8 +8,8 @@
 import Foundation
 import CoreBluetooth
 
-struct CellInfoModel: Identifiable {
-    let id: UUID
+public struct CellInfoModel: Identifiable {
+    public let id: UUID
     let name: String
     let lastFourCardNumber: String
     let objectID: String

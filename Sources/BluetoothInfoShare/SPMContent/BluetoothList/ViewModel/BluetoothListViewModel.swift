@@ -2,7 +2,7 @@ import Foundation
 import CoreBluetooth
 import Combine
 
-final class BluetoothListViewModel: ObservableObject {
+class BluetoothListViewModel: ObservableObject {
     @Published private(set) var viewStatus: ViewState = .loading
     @Published private(set) var availableDevices: [CellInfoModel] = []
         
@@ -10,7 +10,7 @@ final class BluetoothListViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let manager: BluetoothManager
     
-    init(bluetoothManager: BluetoothManager) {
+    public init(bluetoothManager: BluetoothManager) {
         self.manager = bluetoothManager
         subscribeToManager()
         startScanning()

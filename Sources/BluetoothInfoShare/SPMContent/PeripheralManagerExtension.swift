@@ -12,7 +12,7 @@ class PeripheralManagerDelegateHandler: NSObject, CBPeripheralManagerDelegate {
     private weak var bluetoothManager: BluetoothManager?
 //    weak var dataSharingManager: DataSharingManager?
     
-    init(bluetoothManager: BluetoothManager) {
+    public init(bluetoothManager: BluetoothManager) {
         self.bluetoothManager = bluetoothManager
     }
     

@@ -25,7 +25,7 @@ public struct BluetoothItemCell: View {
     @Environment(\.presentationMode) private var presentationMode
     let onCellTap: (() -> Void)
     
-    init(item: CellInfoModel, bluetoothManager: BluetoothManager, onCellTap: @escaping (() -> Void)) {
+    public init(item: CellInfoModel, bluetoothManager: BluetoothManager, onCellTap: @escaping (() -> Void)) {
         self.onCellTap = onCellTap
         _viewModel = StateObject(wrappedValue: BluetoothCellViewModel(item: item, bluetoothManager: bluetoothManager))
     }

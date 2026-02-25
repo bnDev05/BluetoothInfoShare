@@ -31,7 +31,7 @@ public class BluetoothManager: NSObject {
     public let connectionErrorPublisher: AnyPublisher<(CBPeripheral, Error), Never>
     public let connectionErrorSubject = PassthroughSubject<(CBPeripheral, Error), Never>()
 
-    override init() {
+    public override init() {
         statePublisher           = stateSubject.eraseToAnyPublisher()
         discoveryPublisher       = discoverySubject.eraseToAnyPublisher()
         scanningPublisher        = scanningSubject.eraseToAnyPublisher()

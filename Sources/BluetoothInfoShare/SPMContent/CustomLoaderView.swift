@@ -7,14 +7,14 @@
 
 import SwiftUI
 
-struct CustomLoaderView: View {
+public struct CustomLoaderView: View {
     let size: CGFloat
     
-    init(size: CGFloat = 1.0) {
+    public init(size: CGFloat = 1.0) {
         self.size = size
     }
     
-    var body: some View {
+    public var body: some View {
         ProgressView()
             .progressViewStyle(.circular)
             .scaleEffect(CGSize(width: size, height: size))

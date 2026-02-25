@@ -13,7 +13,7 @@ import UIKit
 final class ErrorStateViewModel: ObservableObject {
     let errorState: CBManagerState
     
-    init(errorState: CBManagerState) {
+    public init(errorState: CBManagerState) {
         self.errorState = errorState
     }
     

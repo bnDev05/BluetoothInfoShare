@@ -24,7 +24,7 @@ public struct ErrorStateView: View {
     let errorStatus: CBManagerState
     @StateObject private var viewModel: ErrorStateViewModel
     
-    init(errorMessage: String?, errorStatus: CBManagerState) {
+    public init(errorMessage: String?, errorStatus: CBManagerState) {
         self.errorMessage = errorMessage
         self.errorStatus = errorStatus
         _viewModel = StateObject(wrappedValue: ErrorStateViewModel(errorState: errorStatus))
