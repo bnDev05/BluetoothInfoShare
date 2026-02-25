@@ -5,39 +5,39 @@ import Combine
 
 extension BluetoothManager {
 
-    static let dataSharingServiceUUID        = CBUUID(string: "A1B2C3D4-E5F6-7890-1234-56789ABCDEF0")
-    static let dataSharingCharacteristicUUID = CBUUID(string: "A1B2C3D4-E5F6-7890-1234-56789ABCDEF1")
+    public static let dataSharingServiceUUID        = CBUUID(string: "A1B2C3D4-E5F6-7890-1234-56789ABCDEF0")
+    public static let dataSharingCharacteristicUUID = CBUUID(string: "A1B2C3D4-E5F6-7890-1234-56789ABCDEF1")
 
-    private static var peripheralManager: CBPeripheralManager?
-    private static var transferCharacteristic: CBMutableCharacteristic?
+    public  static var peripheralManager: CBPeripheralManager?
+    public  static var transferCharacteristic: CBMutableCharacteristic?
 
-    static let peripheralStatePublisher: AnyPublisher<CBManagerState, Never> = {
+    public static let peripheralStatePublisher: AnyPublisher<CBManagerState, Never> = {
         let subject = PassthroughSubject<CBManagerState, Never>()
         peripheralStateSubject = subject
         return subject.eraseToAnyPublisher()
     }()
-    private static var peripheralStateSubject: PassthroughSubject<CBManagerState, Never>?
+    public  static var peripheralStateSubject: PassthroughSubject<CBManagerState, Never>?
 
-    static let isAdvertisingPublisher: AnyPublisher<Bool, Never> = {
+    public static let isAdvertisingPublisher: AnyPublisher<Bool, Never> = {
         let subject = PassthroughSubject<Bool, Never>()
         isAdvertisingSubject = subject
         return subject.eraseToAnyPublisher()
     }()
-    private static var isAdvertisingSubject: PassthroughSubject<Bool, Never>?
+    public  static var isAdvertisingSubject: PassthroughSubject<Bool, Never>?
 
-    static let dataReceivedPublisher: AnyPublisher<Data, Never> = {
+    public static let dataReceivedPublisher: AnyPublisher<Data, Never> = {
         let subject = PassthroughSubject<Data, Never>()
         dataReceivedSubject = subject
         return subject.eraseToAnyPublisher()
     }()
-    private static var dataReceivedSubject: PassthroughSubject<Data, Never>?
+    public static var dataReceivedSubject: PassthroughSubject<Data, Never>?
 
-    private static var dataToSend: Data?
-    private static var sendDataIndex = 0
-    private static let chunkSize = 182
-    private static var receivedData = Data()
+    public  static var dataToSend: Data?
+    public  static var sendDataIndex = 0
+    public  static let chunkSize = 182
+    public  static var receivedData = Data()
 
-    func setupPeripheralManager(delegate: CBPeripheralManagerDelegate) {
+    public func setupPeripheralManager(delegate: CBPeripheralManagerDelegate) {
         if BluetoothManager.peripheralManager == nil {
             BluetoothManager.peripheralManager = CBPeripheralManager(
                 delegate: delegate,
@@ -46,7 +46,7 @@ extension BluetoothManager {
         }
     }
 
-    func startAdvertising() {
+    public func startAdvertising() {
         guard let peripheralManager = BluetoothManager.peripheralManager,
               peripheralManager.state == .poweredOn else { return }
 
@@ -73,22 +73,22 @@ extension BluetoothManager {
         BluetoothManager.isAdvertisingSubject?.send(true)
     }
     
-    func stopAdvertising() {
+    public func stopAdvertising() {
         BluetoothManager.peripheralManager?.stopAdvertising()
         BluetoothManager.isAdvertisingSubject?.send(false)
     }
     
-    var isAdvertising: Bool {
+    public var isAdvertising: Bool {
         BluetoothManager.peripheralManager?.isAdvertising ?? false
     }
     
-    func sendData(_ data: Data) {
+    public func sendData(_ data: Data) {
         BluetoothManager.dataToSend = data
         BluetoothManager.sendDataIndex = 0
         sendNextChunk()
     }
     
-    func sendNextChunk() {
+    public func sendNextChunk() {
         guard let data = BluetoothManager.dataToSend,
               let characteristic = BluetoothManager.transferCharacteristic,
               let peripheralManager = BluetoothManager.peripheralManager else { return }
@@ -112,7 +112,7 @@ extension BluetoothManager {
         }
     }
     
-    static func handleReceivedData(_ data: Data) {
+    public static func handleReceivedData(_ data: Data) {
         if let string = String(data: data, encoding: .utf8), string == "EOM" {
             if !receivedData.isEmpty {
                 dataReceivedSubject?.send(receivedData)
@@ -123,11 +123,11 @@ extension BluetoothManager {
         }
     }
     
-    static func peripheralManagerDidUpdateState(_ state: CBManagerState) {
+    public static func peripheralManagerDidUpdateState(_ state: CBManagerState) {
         peripheralStateSubject?.send(state)
     }
     
-    static func peripheralManagerIsReadyToSend() {
+    public static func peripheralManagerIsReadyToSend() {
         guard let _ = dataToSend, sendDataIndex < (dataToSend?.count ?? 0) else { return }
     }
 }

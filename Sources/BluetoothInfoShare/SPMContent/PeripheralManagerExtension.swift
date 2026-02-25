@@ -8,7 +8,7 @@
 import Foundation
 import CoreBluetooth
 
-class PeripheralManagerDelegateHandler: NSObject, CBPeripheralManagerDelegate {
+public class PeripheralManagerDelegateHandler: NSObject, CBPeripheralManagerDelegate {
     private weak var bluetoothManager: BluetoothManager?
 //    weak var dataSharingManager: DataSharingManager?
     
@@ -16,7 +16,7 @@ class PeripheralManagerDelegateHandler: NSObject, CBPeripheralManagerDelegate {
         self.bluetoothManager = bluetoothManager
     }
     
-    func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+    public func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         BluetoothManager.peripheralManagerDidUpdateState(peripheral.state)
         
         if peripheral.state == .poweredOn {
@@ -24,7 +24,7 @@ class PeripheralManagerDelegateHandler: NSObject, CBPeripheralManagerDelegate {
         }
     }
     
-    func peripheralManager(_ peripheral: CBPeripheralManager,
+    public func peripheralManager(_ peripheral: CBPeripheralManager,
                            didAdd service: CBService,
                            error: Error?) {
         if let error = error {
@@ -32,25 +32,25 @@ class PeripheralManagerDelegateHandler: NSObject, CBPeripheralManagerDelegate {
         }
     }
 
-    func peripheralManager(_ peripheral: CBPeripheralManager,
+    public func peripheralManager(_ peripheral: CBPeripheralManager,
                            central: CBCentral,
                            didSubscribeTo characteristic: CBCharacteristic) {
         print("📲 Central subscribed: \(central.identifier)")
 //        dataSharingManager?.centralDidSubscribe(central)
     }
 
-    func peripheralManager(_ peripheral: CBPeripheralManager,
+    public func peripheralManager(_ peripheral: CBPeripheralManager,
                            central: CBCentral,
                            didUnsubscribeFrom characteristic: CBCharacteristic) {
         print("📴 Central unsubscribed: \(central.identifier)")
 //        dataSharingManager?.centralDidUnsubscribe(central)
     }
 
-    func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
+    public func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
         bluetoothManager?.sendNextChunk()
     }
 
-    func peripheralManager(_ peripheral: CBPeripheralManager,
+    public func peripheralManager(_ peripheral: CBPeripheralManager,
                            didReceiveWrite requests: [CBATTRequest]) {
         for request in requests {
             if let value = request.value {
