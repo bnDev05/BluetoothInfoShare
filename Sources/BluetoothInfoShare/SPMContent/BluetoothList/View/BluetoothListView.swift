@@ -23,7 +23,7 @@ public struct BluetoothListView: View {
     @StateObject private var viewModel: BluetoothListViewModel
 //    private let dataSharingManager: DataSharingManager
     
-    init(/*dependencies: DependencyContainer*/) {
+    public init(/*dependencies: DependencyContainer*/) {
 //        self.dataSharingManager = dependencies.dataSharingManager
         _viewModel = StateObject(wrappedValue: BluetoothListViewModel(bluetoothManager: BluetoothManager.shared))
     }
