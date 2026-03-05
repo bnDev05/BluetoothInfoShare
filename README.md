@@ -2,7 +2,7 @@
 
 iOS Swift Package for advertising and exchanging structured payment info over BLE.
 
-Requirements: iOS 14+, Swift 5.9+
+**Requirements:** iOS 14+, Swift 5.9+
 
 ---
 
@@ -10,7 +10,9 @@ Requirements: iOS 14+, Swift 5.9+
 
 Add via Swift Package Manager in Xcode or `Package.swift`:
 
+```swift
 .package(url: "https://github.com/your-org/BluetoothInfoShare.git", from: "1.0.0")
+```
 
 Add `NSBluetoothAlwaysUsageDescription` to your `Info.plist`.
 
@@ -20,10 +22,10 @@ Add `NSBluetoothAlwaysUsageDescription` to your `Info.plist`.
 
 The BLE local-name is a fixed-width concatenated string:
 
-
+```
 [lastFourCardNumber: 4][objectID: 6][userID: 6][userName: variable]
 // e.g. "1234dscd34hskad7UserABCDEF"
-
+```
 
 Use `AdvertisementInfo` to encode and decode this format.
 
@@ -33,7 +35,7 @@ Use `AdvertisementInfo` to encode and decode this format.
 
 ### Advertising (Peripheral)
 
-#CODE
+```swift
 let manager = BluetoothManager.shared
 
 let info = AdvertisementInfo(
@@ -47,9 +49,11 @@ let handler = PeripheralManagerDelegateHandler(bluetoothManager: manager)
 manager.setupPeripheralManager(delegate: handler)
 manager.setAdvertisementInfo(info)
 // Advertising starts automatically when Bluetooth powers on.
+```
 
 ### Scanning (Central)
-#CODE
+
+```swift
 manager.startScan(serviceUUIDs: [BluetoothManager.dataSharingServiceUUID])
 
 manager.discoveryPublisher
@@ -63,10 +67,11 @@ manager.discoveryPublisher
     }
     .sink { cell in print("\(cell.name) — •••• \(cell.lastFourCardNumber)") }
     .store(in: &cancellables)
+```
 
 ### Connect & Exchange Data
 
-#CODE
+```swift
 // Connect
 let peripheral = try await manager.connect(peripheral)
 
@@ -78,6 +83,7 @@ manager.sendData(data)
 BluetoothManager.dataReceivedPublisher
     .sink { data in /* decode data */ }
     .store(in: &cancellables)
+```
 
 ---
 
@@ -97,3 +103,7 @@ BluetoothManager.dataReceivedPublisher
 | `BluetoothManager.dataReceivedPublisher` | Receive reassembled payloads |
 
 ---
+## License
+
+Behruz Norov
+@bnDev05
