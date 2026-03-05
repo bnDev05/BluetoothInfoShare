@@ -1,8 +1,8 @@
 //
-//  BluetoothManager + CentralManagerExtension.swift
-//  ExampleProject
+//  BluetoothManager+Central.swift
+//  BluetoothInfoShare
 //
-//  Created by Behruz on 13/02/26.
+//  CBCentralManagerDelegate implementation.
 //
 
 import Foundation
@@ -24,7 +24,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
-        discoverySubject.send(peripheral)
+        discoverySubject.send((peripheral, advertisementData))
     }
 
     // MARK: - Connection

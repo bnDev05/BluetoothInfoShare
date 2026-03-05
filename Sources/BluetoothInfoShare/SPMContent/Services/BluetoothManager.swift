@@ -69,9 +69,9 @@ public final class BluetoothManager: NSObject {
     public let statePublisher: AnyPublisher<CBManagerState, Never>
     let stateSubject = PassthroughSubject<CBManagerState, Never>()
 
-    /// Emits a peripheral each time one is discovered during a scan.
-    public let discoveryPublisher: AnyPublisher<CBPeripheral, Never>
-    let discoverySubject = PassthroughSubject<CBPeripheral, Never>()
+    /// Emits a peripheral and its raw advertisement data each time one is discovered.
+    public let discoveryPublisher: AnyPublisher<(CBPeripheral, [String: Any]), Never>
+    let discoverySubject = PassthroughSubject<(CBPeripheral, [String: Any]), Never>()
 
     /// Emits `true` when scanning starts, `false` when it stops.
     public let scanningPublisher: AnyPublisher<Bool, Never>
