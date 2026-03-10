@@ -11,7 +11,7 @@ iOS Swift Package for advertising and exchanging structured payment info over BL
 Add via Swift Package Manager in Xcode or `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/your-org/BluetoothInfoShare.git", from: "1.0.0")
+.package(url: "https://github.com/your-org/BluetoothInfoShare.git", from: "1.0.9")
 ```
 
 Add `NSBluetoothAlwaysUsageDescription` to your `Info.plist`.
