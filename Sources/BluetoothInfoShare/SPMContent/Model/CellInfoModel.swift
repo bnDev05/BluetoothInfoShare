@@ -8,97 +8,122 @@ import CoreBluetooth
 
 /// An immutable snapshot of the data broadcast by a remote peripheral.
 ///
-/// ### Secure usage (recommended)
-/// ```swift
-/// // sessionKey: Data — 32 bytes shared with the peripheral out-of-band
-/// if let cell = CellInfoModel.makeInfo(
-///     advertisementLocalName: localName,
-///     peripheral: peripheral,
-///     isConnected: false,
-///     decryptingWith: sessionKey
-/// ) {
-///     print(cell.userName)
-/// }
-/// ```
+/// ## Two-phase population
 ///
-/// ### Legacy plaintext usage (debugging / migration only)
-/// ```swift
-/// if let cell = CellInfoModel.makeInfo(
-///     advertisementLocalName: "1234dscd34hskad7UserABCDEF",
-///     peripheral: peripheral,
-///     isConnected: false
-/// ) { ... }
-/// ```
+/// **Phase 1 — passive scan** (no connection needed):
+/// `makeInfo(advertisementLocalName:peripheral:isConnected:)` creates a model
+/// with `userName` filled in and sensitive fields set to empty strings.
+/// This is enough to display the device in a list.
+///
+/// **Phase 2 — post-connection** (after GATT exchange):
+/// `applying(sensitivePayloadData:encryptionKey:)` returns a new model with
+/// `lastFourCardNumber`, `objectID`, and `userID` populated from the
+/// decrypted GATT payload.
 public struct CellInfoModel: Identifiable, Equatable {
 
     // MARK: - Properties
 
     public let id:                 UUID
     public let name:               String
+    /// Empty until the encrypted GATT payload is received and decrypted.
     public let lastFourCardNumber: String
+    /// Empty until the encrypted GATT payload is received and decrypted.
     public let objectID:           String
+    /// Empty until the encrypted GATT payload is received and decrypted.
     public let userID:             String
     public let peripheral:         CBPeripheral
     public var isConnected:        Bool
 
-    // MARK: - Init
+    // MARK: - Phase 1: build from advertisement (userName only)
 
-    public init(info: AdvertisementInfo, peripheral: CBPeripheral, isConnected: Bool) {
-        self.id                 = UUID()
-        self.name               = info.userName
-        self.lastFourCardNumber = info.lastFourCardNumber
-        self.objectID           = info.objectID
-        self.userID             = info.userID
-        self.peripheral         = peripheral
-        self.isConnected        = isConnected
-    }
-
-    // MARK: - Factory (encrypted — recommended)
-
-    /// Decrypts and parses the advertisement local-name, returning a model on success.
+    /// Creates a display-ready model from a raw advertisement local-name.
+    ///
+    /// Sensitive fields are empty — they arrive over GATT after connection.
     ///
     /// - Parameters:
-    ///   - advertisementLocalName: Raw value of `CBAdvertisementDataLocalNameKey`.
+    ///   - advertisementLocalName: The raw value of `CBAdvertisementDataLocalNameKey`
+    ///                             (now just the userName).
     ///   - peripheral:             The originating peripheral.
     ///   - isConnected:            Current connection state.
-    ///   - key:                    The 32-byte AES-GCM key shared with the advertiser.
-    /// - Returns: A populated `CellInfoModel`, or `nil` if the name is absent,
-    ///   the key is wrong, or the ciphertext has been tampered with.
-    public static func makeInfo(
-        advertisementLocalName: String,
-        peripheral: CBPeripheral,
-        isConnected: Bool,
-        decryptingWith key: Data
-    ) -> CellInfoModel? {
-        do {
-            let info = try AdvertisementInfo(encoded: advertisementLocalName, decryptingWith: key)
-            return CellInfoModel(info: info, peripheral: peripheral, isConnected: isConnected)
-        } catch {
-            // Decryption failure can mean: wrong key, tampered payload, or a
-            // peripheral that isn't part of this system — all are non-fatal.
-            print("[BluetoothInfoShare] CellInfoModel decryption/parse failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    // MARK: - Factory (plaintext — legacy / debug only)
-
-    /// Parses a **plaintext** advertisement local-name.
-    ///
-    /// - Warning: Do not use in production; the local-name is visible to all
-    ///   nearby BLE scanners.  Use ``makeInfo(advertisementLocalName:peripheral:isConnected:decryptingWith:)`` instead.
+    /// - Returns: A model with `name` set and sensitive fields empty,
+    ///   or `nil` if `advertisementLocalName` is blank.
     public static func makeInfo(
         advertisementLocalName: String,
         peripheral: CBPeripheral,
         isConnected: Bool
     ) -> CellInfoModel? {
-        do {
-            let info = try AdvertisementInfo(encoded: advertisementLocalName)
-            return CellInfoModel(info: info, peripheral: peripheral, isConnected: isConnected)
-        } catch {
-            print("[BluetoothInfoShare] CellInfoModel parse failed: \(error.localizedDescription)")
+        let userName = advertisementLocalName.trimmingCharacters(in: .whitespaces)
+        guard !userName.isEmpty else {
+            print("[BluetoothInfoShare] CellInfoModel: empty local name, skipping.")
             return nil
         }
+        return CellInfoModel(
+            id:                 UUID(),
+            name:               userName,
+            lastFourCardNumber: "",   // populated in phase 2
+            objectID:           "",
+            userID:             "",
+            peripheral:         peripheral,
+            isConnected:        isConnected
+        )
+    }
+
+    // MARK: - Phase 2: merge decrypted GATT payload
+
+    /// Returns a new model with sensitive fields populated from a decrypted
+    /// GATT payload produced by ``AdvertisementInfo/sensitivePayload()``.
+    ///
+    /// Call this inside your `dataReceivedPublisher` handler after decrypting:
+    /// ```swift
+    /// BluetoothManager.dataReceivedPublisher
+    ///     .sink { data in
+    ///         let cipher  = String(data: data, encoding: .utf8)!
+    ///         let json    = try AdvertisementCrypto.decrypt(encoded: cipher, keyData: key)
+    ///         let updated = cell.applying(sensitivePayloadData: json)
+    ///     }
+    /// ```
+    ///
+    /// - Parameter payloadData: Decrypted JSON from the GATT characteristic.
+    /// - Returns: Updated model, or `self` if parsing fails.
+    public func applying(sensitivePayloadData payloadData: Data) -> CellInfoModel {
+        guard
+            let dict     = try? JSONSerialization.jsonObject(with: payloadData) as? [String: String],
+            let lastFour = dict["lastFour"],
+            let objectID = dict["objectID"],
+            let userID   = dict["userID"]
+        else {
+            print("[BluetoothInfoShare] CellInfoModel: failed to parse sensitive payload.")
+            return self
+        }
+        return CellInfoModel(
+            id:                 self.id,
+            name:               self.name,
+            lastFourCardNumber: lastFour,
+            objectID:           objectID,
+            userID:             userID,
+            peripheral:         self.peripheral,
+            isConnected:        self.isConnected
+        )
+    }
+
+    // MARK: - Internal memberwise init
+
+    private init(
+        id: UUID,
+        name: String,
+        lastFourCardNumber: String,
+        objectID: String,
+        userID: String,
+        peripheral: CBPeripheral,
+        isConnected: Bool
+    ) {
+        self.id                 = id
+        self.name               = name
+        self.lastFourCardNumber = lastFourCardNumber
+        self.objectID           = objectID
+        self.userID             = userID
+        self.peripheral         = peripheral
+        self.isConnected        = isConnected
     }
 
     // MARK: - Equatable
