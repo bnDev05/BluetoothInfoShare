@@ -24,12 +24,15 @@ extension BluetoothManager {
     public static var transferCharacteristic: CBMutableCharacteristic?
     private(set) static var advertisementInfo: AdvertisementInfo?
 
-    // MARK: - Publishers (eagerly initialised — never nil)
+    // MARK: - Publishers (all eagerly initialised — never nil)
 
-    public static let peripheralStateSubject = PassthroughSubject<CBManagerState, Never>()
-    public static let isAdvertisingSubject   = PassthroughSubject<Bool, Never>()
-    /// Emits fully reassembled `Data` payloads once an `EOM` marker is received.
-    public static let dataReceivedSubject    = PassthroughSubject<Data, Never>()
+    public static let peripheralStateSubject    = PassthroughSubject<CBManagerState, Never>()
+    public static let isAdvertisingSubject      = PassthroughSubject<Bool, Never>()
+    /// Emits fully reassembled Data payloads once an EOM marker is received.
+    public static let dataReceivedSubject       = PassthroughSubject<Data, Never>()
+    /// Emits the CBCentral that just subscribed to the transfer characteristic.
+    /// BluetoothService observes this to immediately push the sensitive payload.
+    public static let centralDidSubscribeSubject = PassthroughSubject<CBCentral, Never>()
 
     public static var peripheralStatePublisher: AnyPublisher<CBManagerState, Never> {
         peripheralStateSubject.eraseToAnyPublisher()
@@ -39,6 +42,10 @@ extension BluetoothManager {
     }
     public static var dataReceivedPublisher: AnyPublisher<Data, Never> {
         dataReceivedSubject.eraseToAnyPublisher()
+    }
+    /// Fires when a central subscribes — use this to trigger sensitive payload transmission.
+    public static var centralDidSubscribePublisher: AnyPublisher<CBCentral, Never> {
+        centralDidSubscribeSubject.eraseToAnyPublisher()
     }
 
     // MARK: - Data Transfer State
@@ -58,17 +65,11 @@ extension BluetoothManager {
         )
     }
 
-    // MARK: - Advertisement Info
-
     public func setAdvertisementInfo(_ info: AdvertisementInfo) {
         BluetoothManager.advertisementInfo = info
     }
 
-    // MARK: - Advertising
-    //
-    // Only userName is placed in the local-name field.
-    // Sensitive fields travel encrypted over GATT after connection.
-    // This keeps the advertisement within iOS's ~26-byte passive-scan limit.
+    // MARK: - Advertising (userName only in local name — fits passive scan limit)
 
     public func startAdvertising() {
         guard
@@ -88,18 +89,13 @@ extension BluetoothManager {
         )
         BluetoothManager.transferCharacteristic = characteristic
 
-        let service = CBMutableService(
-            type: BluetoothManager.dataSharingServiceUUID,
-            primary: true
-        )
+        let service = CBMutableService(type: BluetoothManager.dataSharingServiceUUID, primary: true)
         service.characteristics = [characteristic]
 
         peripheralManager.add(service)
         peripheralManager.startAdvertising([
             CBAdvertisementDataServiceUUIDsKey: [BluetoothManager.dataSharingServiceUUID],
             CBAdvertisementDataLocalNameKey:    info.advertisementLocalName()
-            //                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-            // userName only — fits in passive scan. Sensitive fields go over GATT.
         ])
 
         BluetoothManager.isAdvertisingSubject.send(true)
