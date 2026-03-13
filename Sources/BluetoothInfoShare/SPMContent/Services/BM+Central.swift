@@ -135,9 +135,11 @@ extension BluetoothManager: CBPeripheralDelegate {
             peripheral.setNotifyValue(true, for: characteristic)
         }
 
-        // Signal that the central-side GATT channel is open.
-        // BluetoothService observes this to write our sensitive payload.
-        centralGATTReadySubject.send(peripheral)
+        // Small delay to let the peripheral process the subscription before
+        // we attempt to write — avoids "Unknown ATT error" on the write.
+        bluetoothQueue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.centralGATTReadySubject.send(peripheral)
+        }
     }
 
     // Step 3: peripheral pushed data via notify → feed into receive buffer
