@@ -40,28 +40,33 @@ extension BluetoothManager {
     private(set) static var advertisementEncryptionKey: Data?
 
     // MARK: - Publishers
+    //
+    // ⚠️ Subjects are eagerly initialised as concrete stored properties,
+    // NOT as lazy closure-backed `let` constants.
+    //
+    // The previous pattern wired the subject as a side-effect of the first
+    // access to the publisher.  `handleReceivedData(_:)` calls
+    // `dataReceivedSubject?.send(...)` directly and never touches
+    // `dataReceivedPublisher`, so the closure never ran, the subject was
+    // always nil, and every incoming reassembled payload was silently dropped.
+    //
+    // Fix: create all subjects unconditionally at declaration time; expose
+    // each publisher as a computed property derived from its subject.
 
-    public static let peripheralStatePublisher: AnyPublisher<CBManagerState, Never> = {
-        let subject = PassthroughSubject<CBManagerState, Never>()
-        peripheralStateSubject = subject
-        return subject.eraseToAnyPublisher()
-    }()
-    public static var peripheralStateSubject: PassthroughSubject<CBManagerState, Never>?
-
-    public static let isAdvertisingPublisher: AnyPublisher<Bool, Never> = {
-        let subject = PassthroughSubject<Bool, Never>()
-        isAdvertisingSubject = subject
-        return subject.eraseToAnyPublisher()
-    }()
-    public static var isAdvertisingSubject: PassthroughSubject<Bool, Never>?
-
+    public static let peripheralStateSubject = PassthroughSubject<CBManagerState, Never>()
+    public static let isAdvertisingSubject   = PassthroughSubject<Bool, Never>()
     /// Emits fully reassembled `Data` payloads once an `EOM` marker is received.
-    public static let dataReceivedPublisher: AnyPublisher<Data, Never> = {
-        let subject = PassthroughSubject<Data, Never>()
-        dataReceivedSubject = subject
-        return subject.eraseToAnyPublisher()
-    }()
-    public static var dataReceivedSubject: PassthroughSubject<Data, Never>?
+    public static let dataReceivedSubject    = PassthroughSubject<Data, Never>()
+
+    public static var peripheralStatePublisher: AnyPublisher<CBManagerState, Never> {
+        peripheralStateSubject.eraseToAnyPublisher()
+    }
+    public static var isAdvertisingPublisher: AnyPublisher<Bool, Never> {
+        isAdvertisingSubject.eraseToAnyPublisher()
+    }
+    public static var dataReceivedPublisher: AnyPublisher<Data, Never> {
+        dataReceivedSubject.eraseToAnyPublisher()
+    }
 
     // MARK: - Data Transfer State
 
@@ -157,13 +162,13 @@ extension BluetoothManager {
             CBAdvertisementDataLocalNameKey:    encryptedLocalName
         ])
 
-        BluetoothManager.isAdvertisingSubject?.send(true)
+        BluetoothManager.isAdvertisingSubject.send(true)
     }
 
     /// Stops BLE advertising.
     public func stopAdvertising() {
         BluetoothManager.peripheralManager?.stopAdvertising()
-        BluetoothManager.isAdvertisingSubject?.send(false)
+        BluetoothManager.isAdvertisingSubject.send(false)
     }
 
     /// Whether the peripheral manager is currently advertising.
@@ -216,7 +221,7 @@ extension BluetoothManager {
     public static func handleReceivedData(_ data: Data) {
         if let marker = String(data: data, encoding: .utf8), marker == "EOM" {
             guard !receivedDataBuffer.isEmpty else { return }
-            dataReceivedSubject?.send(receivedDataBuffer)
+            dataReceivedSubject.send(receivedDataBuffer)
             receivedDataBuffer = Data()
         } else {
             receivedDataBuffer.append(data)
@@ -226,7 +231,7 @@ extension BluetoothManager {
     // MARK: - Peripheral Manager Callbacks
 
     public static func peripheralManagerDidUpdateState(_ state: CBManagerState) {
-        peripheralStateSubject?.send(state)
+        peripheralStateSubject.send(state)
     }
 
     public static func peripheralManagerIsReadyToSend() {
