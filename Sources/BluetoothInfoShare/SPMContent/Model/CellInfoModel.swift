@@ -1,8 +1,6 @@
 //
 //  CellInfoModel.swift
-//  ExampleProject
-//
-//  Created by Behruz on 03/02/26.
+//  BluetoothInfoShare
 //
 
 import Foundation
@@ -10,79 +8,85 @@ import CoreBluetooth
 
 /// An immutable snapshot of the data broadcast by a remote peripheral.
 ///
-/// Create instances via ``makeInfo(advertisementLocalName:peripheral:isConnected:)``
-/// or directly from an ``AdvertisementInfo`` value.
-///
+/// ### Secure usage (recommended)
 /// ```swift
-/// // From raw advertisement string
+/// // sessionKey: Data — 32 bytes shared with the peripheral out-of-band
+/// if let cell = CellInfoModel.makeInfo(
+///     advertisementLocalName: localName,
+///     peripheral: peripheral,
+///     isConnected: false,
+///     decryptingWith: sessionKey
+/// ) {
+///     print(cell.userName)
+/// }
+/// ```
+///
+/// ### Legacy plaintext usage (debugging / migration only)
+/// ```swift
 /// if let cell = CellInfoModel.makeInfo(
 ///     advertisementLocalName: "1234dscd34hskad7UserABCDEF",
 ///     peripheral: peripheral,
 ///     isConnected: false
-/// ) {
-///     print(cell.userName)  // "UserABCDEF"
-/// }
-///
-/// // From a pre-parsed AdvertisementInfo
-/// let info = AdvertisementInfo(lastFourCardNumber: "1234", objectID: "dscd34",
-///                              userID: "hskad7", userName: "UserABCDEF")
-/// let cell = CellInfoModel(info: info, peripheral: peripheral, isConnected: false)
+/// ) { ... }
 /// ```
 public struct CellInfoModel: Identifiable, Equatable {
 
     // MARK: - Properties
 
-    /// Stable unique identifier for use in SwiftUI lists.
-    public let id: UUID
-
-    /// Human-readable display name extracted from the advertisement.
-    public let name: String
-
-    /// Last four digits of the advertiser's payment card.
+    public let id:                 UUID
+    public let name:               String
     public let lastFourCardNumber: String
+    public let objectID:           String
+    public let userID:             String
+    public let peripheral:         CBPeripheral
+    public var isConnected:        Bool
 
-    /// Opaque object identifier from the advertisement.
-    public let objectID: String
+    // MARK: - Init
 
-    /// Opaque user identifier from the advertisement.
-    public let userID: String
-
-    /// The underlying CoreBluetooth peripheral.
-    public let peripheral: CBPeripheral
-
-    /// Whether the central is currently connected to this peripheral.
-    public var isConnected: Bool
-
-    // MARK: - Init (direct)
-
-    /// Creates a `CellInfoModel` directly from an ``AdvertisementInfo`` value.
-    ///
-    /// - Parameters:
-    ///   - info: Parsed advertisement payload.
-    ///   - peripheral: The originating peripheral.
-    ///   - isConnected: Current connection state.
     public init(info: AdvertisementInfo, peripheral: CBPeripheral, isConnected: Bool) {
-        self.id = UUID()
-        self.name = info.userName
+        self.id                 = UUID()
+        self.name               = info.userName
         self.lastFourCardNumber = info.lastFourCardNumber
-        self.objectID = info.objectID
-        self.userID = info.userID
-        self.peripheral = peripheral
-        self.isConnected = isConnected
+        self.objectID           = info.objectID
+        self.userID             = info.userID
+        self.peripheral         = peripheral
+        self.isConnected        = isConnected
     }
 
-    // MARK: - Factory
+    // MARK: - Factory (encrypted — recommended)
 
-    /// Attempts to parse the advertisement local-name string and build a model.
-    ///
-    /// Returns `nil` (and logs a warning) when `advertisementLocalName` is too short
-    /// or otherwise malformed.
+    /// Decrypts and parses the advertisement local-name, returning a model on success.
     ///
     /// - Parameters:
-    ///   - advertisementLocalName: The raw value of `CBAdvertisementDataLocalNameKey`.
-    ///   - peripheral: The originating `CBPeripheral`.
-    ///   - isConnected: Whether the central is already connected.
-    /// - Returns: A populated `CellInfoModel`, or `nil` on parse failure.
+    ///   - advertisementLocalName: Raw value of `CBAdvertisementDataLocalNameKey`.
+    ///   - peripheral:             The originating peripheral.
+    ///   - isConnected:            Current connection state.
+    ///   - key:                    The 32-byte AES-GCM key shared with the advertiser.
+    /// - Returns: A populated `CellInfoModel`, or `nil` if the name is absent,
+    ///   the key is wrong, or the ciphertext has been tampered with.
+    public static func makeInfo(
+        advertisementLocalName: String,
+        peripheral: CBPeripheral,
+        isConnected: Bool,
+        decryptingWith key: Data
+    ) -> CellInfoModel? {
+        do {
+            let info = try AdvertisementInfo(encoded: advertisementLocalName, decryptingWith: key)
+            return CellInfoModel(info: info, peripheral: peripheral, isConnected: isConnected)
+        } catch {
+            // Decryption failure can mean: wrong key, tampered payload, or a
+            // peripheral that isn't part of this system — all are non-fatal.
+            print("[BluetoothInfoShare] CellInfoModel decryption/parse failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // MARK: - Factory (plaintext — legacy / debug only)
+
+    /// Parses a **plaintext** advertisement local-name.
+    ///
+    /// - Warning: Do not use in production; the local-name is visible to all
+    ///   nearby BLE scanners.  Use ``makeInfo(advertisementLocalName:peripheral:isConnected:decryptingWith:)`` instead.
     public static func makeInfo(
         advertisementLocalName: String,
         peripheral: CBPeripheral,
@@ -92,7 +96,6 @@ public struct CellInfoModel: Identifiable, Equatable {
             let info = try AdvertisementInfo(encoded: advertisementLocalName)
             return CellInfoModel(info: info, peripheral: peripheral, isConnected: isConnected)
         } catch {
-            // Non-fatal: many peripherals won't carry a matching local name.
             print("[BluetoothInfoShare] CellInfoModel parse failed: \(error.localizedDescription)")
             return nil
         }

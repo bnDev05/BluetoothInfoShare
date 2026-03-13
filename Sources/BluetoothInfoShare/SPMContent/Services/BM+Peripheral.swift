@@ -2,7 +2,7 @@
 //  BluetoothManager+Peripheral.swift
 //  BluetoothInfoShare
 //
-//  Peripheral-side logic: advertising structured payment info and
+//  Peripheral-side logic: advertising encrypted payment info and
 //  sending / receiving chunked data over BLE notify/write characteristics.
 //
 
@@ -14,36 +14,33 @@ extension BluetoothManager {
 
     // MARK: - Service & Characteristic UUIDs
 
-    /// BLE service UUID used by BluetoothInfoShare.
-    ///
-    /// Use this when scanning so only matching peripherals are returned:
-    /// ```swift
-    /// manager.startScan(serviceUUIDs: [BluetoothManager.dataSharingServiceUUID])
-    /// ```
     public static let dataSharingServiceUUID = CBUUID(
         string: "A1B2C3D4-E5F6-7890-1234-56789ABCDEF0"
     )
-
-    /// BLE characteristic UUID for data exchange within ``dataSharingServiceUUID``.
     public static let dataSharingCharacteristicUUID = CBUUID(
         string: "A1B2C3D4-E5F6-7890-1234-56789ABCDEF1"
     )
 
     // MARK: - Static Peripheral State
 
-    /// The underlying `CBPeripheralManager`. Created by ``setupPeripheralManager(delegate:)``.
     public static var peripheralManager: CBPeripheralManager?
-
-    /// The mutable characteristic used for notify/write data exchange.
     public static var transferCharacteristic: CBMutableCharacteristic?
 
-    /// Structured payload advertised as the BLE local name.
-    /// Set via ``setAdvertisementInfo(_:)``.
+    /// Structured payload to advertise.  Set via ``setAdvertisementInfo(_:)``.
     private(set) static var advertisementInfo: AdvertisementInfo?
 
-    // MARK: - Peripheral State Publisher
+    /// The 32-byte AES-GCM key used to encrypt the advertisement payload.
+    ///
+    /// Must be set before ``startAdvertising()`` is called.  The same key must
+    /// be supplied to ``CellInfoModel/makeInfo(advertisementLocalName:peripheral:isConnected:decryptingWith:)``
+    /// on the scanning side.
+    ///
+    /// - Important: Derive this key from a secure session (server-issued token,
+    ///   ECDH handshake, QR pairing, etc.).  Never hard-code it.
+    private(set) static var advertisementEncryptionKey: Data?
 
-    /// Emits whenever the peripheral manager's Bluetooth state changes.
+    // MARK: - Publishers
+
     public static let peripheralStatePublisher: AnyPublisher<CBManagerState, Never> = {
         let subject = PassthroughSubject<CBManagerState, Never>()
         peripheralStateSubject = subject
@@ -51,9 +48,6 @@ extension BluetoothManager {
     }()
     public static var peripheralStateSubject: PassthroughSubject<CBManagerState, Never>?
 
-    // MARK: - Advertising Publisher
-
-    /// Emits `true` when advertising starts, `false` when it stops.
     public static let isAdvertisingPublisher: AnyPublisher<Bool, Never> = {
         let subject = PassthroughSubject<Bool, Never>()
         isAdvertisingSubject = subject
@@ -61,18 +55,7 @@ extension BluetoothManager {
     }()
     public static var isAdvertisingSubject: PassthroughSubject<Bool, Never>?
 
-    // MARK: - Data Received Publisher
-
     /// Emits fully reassembled `Data` payloads once an `EOM` marker is received.
-    ///
-    /// ```swift
-    /// BluetoothManager.dataReceivedPublisher
-    ///     .receive(on: DispatchQueue.main)
-    ///     .sink { data in
-    ///         let model = try? JSONDecoder().decode(MyModel.self, from: data)
-    ///     }
-    ///     .store(in: &cancellables)
-    /// ```
     public static let dataReceivedPublisher: AnyPublisher<Data, Never> = {
         let subject = PassthroughSubject<Data, Never>()
         dataReceivedSubject = subject
@@ -82,24 +65,14 @@ extension BluetoothManager {
 
     // MARK: - Data Transfer State
 
-    /// Data currently queued for chunked transmission.
-    public static var dataToSend: Data?
-    /// Byte offset of the next chunk to send.
-    public static var sendDataIndex = 0
-    /// Maximum bytes per BLE update (fits inside a standard MTU).
-    public static let chunkSize = 182
-    /// Accumulation buffer for incoming chunks.
+    public static var dataToSend:        Data?
+    public static var sendDataIndex      = 0
+    public static let chunkSize          = 182
     public static var receivedDataBuffer = Data()
 
     // MARK: - Setup
 
     /// Creates and configures the `CBPeripheralManager`.
-    ///
-    /// Must be called **before** ``startAdvertising()`` or ``setAdvertisementInfo(_:)``.
-    /// Safe to call multiple times — subsequent calls are no-ops.
-    ///
-    /// - Parameter delegate: Receives peripheral manager callbacks.
-    ///   Use ``PeripheralManagerDelegateHandler`` unless you need custom handling.
     public func setupPeripheralManager(delegate: CBPeripheralManagerDelegate) {
         guard BluetoothManager.peripheralManager == nil else { return }
         BluetoothManager.peripheralManager = CBPeripheralManager(
@@ -108,28 +81,39 @@ extension BluetoothManager {
         )
     }
 
-    // MARK: - Advertisement Info
+    // MARK: - Advertisement Info & Encryption Key
 
-    /// Sets the structured payload to advertise as the BLE local name.
+    /// Sets the structured payload to advertise.
     ///
-    /// Call this before ``startAdvertising()``.  If advertising is already
-    /// running you must stop and restart it for the new info to take effect.
-    ///
-    /// - Parameter info: The ``AdvertisementInfo`` to broadcast.
+    /// Call this together with ``setAdvertisementEncryptionKey(_:)`` before
+    /// ``startAdvertising()``.
     public func setAdvertisementInfo(_ info: AdvertisementInfo) {
         BluetoothManager.advertisementInfo = info
     }
 
+    /// Sets the 32-byte AES-GCM key used to encrypt the advertisement payload.
+    ///
+    /// Must be called before ``startAdvertising()``.  The scanning peer must
+    /// use the identical key to decrypt.
+    ///
+    /// - Parameter key: Exactly 32 bytes.  Pass `nil` to clear the key.
+    public func setAdvertisementEncryptionKey(_ key: Data?) {
+        BluetoothManager.advertisementEncryptionKey = key
+    }
+
     // MARK: - Advertising
 
-    /// Registers the data-sharing service and begins BLE advertising.
+    /// Registers the data-sharing service and begins BLE advertising with an
+    /// **encrypted** local-name payload.
     ///
-    /// The local-name string is derived from the ``AdvertisementInfo`` set via
-    /// ``setAdvertisementInfo(_:)``.  When no info has been set the call is
-    /// silently ignored.
+    /// Prerequisites:
+    /// - ``setupPeripheralManager(delegate:)`` called.
+    /// - ``setAdvertisementInfo(_:)`` called with valid info.
+    /// - ``setAdvertisementEncryptionKey(_:)`` called with a 32-byte key.
+    /// - Peripheral manager in `.poweredOn` state.
     ///
-    /// Requires ``setupPeripheralManager(delegate:)`` to have been called first
-    /// and the peripheral manager to be in the `.poweredOn` state.
+    /// If any prerequisite is unmet the call is silently ignored and a log
+    /// message is printed.
     public func startAdvertising() {
         guard
             let peripheralManager = BluetoothManager.peripheralManager,
@@ -137,6 +121,19 @@ extension BluetoothManager {
             let info = BluetoothManager.advertisementInfo
         else {
             print("[BluetoothInfoShare] startAdvertising ignored — manager not ready or no AdvertisementInfo set.")
+            return
+        }
+        guard let encryptionKey = BluetoothManager.advertisementEncryptionKey else {
+            print("[BluetoothInfoShare] startAdvertising ignored — no encryption key set. Call setAdvertisementEncryptionKey(_:) first.")
+            return
+        }
+
+        // Encrypt the payload.  On failure, refuse to advertise plaintext.
+        let encryptedLocalName: String
+        do {
+            encryptedLocalName = try info.encoded(encryptedWith: encryptionKey)
+        } catch {
+            print("[BluetoothInfoShare] startAdvertising aborted — encryption failed: \(error.localizedDescription)")
             return
         }
 
@@ -157,7 +154,7 @@ extension BluetoothManager {
         peripheralManager.add(service)
         peripheralManager.startAdvertising([
             CBAdvertisementDataServiceUUIDsKey: [BluetoothManager.dataSharingServiceUUID],
-            CBAdvertisementDataLocalNameKey: info.encoded()
+            CBAdvertisementDataLocalNameKey:    encryptedLocalName
         ])
 
         BluetoothManager.isAdvertisingSubject?.send(true)
@@ -177,34 +174,24 @@ extension BluetoothManager {
     // MARK: - Data Sending
 
     /// Enqueues `data` for chunked delivery to all subscribed centrals.
-    ///
-    /// Data is split into ``BluetoothManager/chunkSize``-byte chunks and sent
-    /// sequentially.  An `EOM` marker is transmitted after the final chunk.
-    ///
-    /// - Parameter data: The raw bytes to send.
     public func sendData(_ data: Data) {
-        BluetoothManager.dataToSend = data
-        BluetoothManager.sendDataIndex = 0
+        BluetoothManager.dataToSend      = data
+        BluetoothManager.sendDataIndex   = 0
         sendNextChunk()
     }
 
     /// Sends the next pending chunk, or the `EOM` marker when done.
-    ///
-    /// Called automatically by ``sendData(_:)`` and by
-    /// `PeripheralManagerDelegateHandler` when the peripheral manager is
-    /// ready to send more data.
     public func sendNextChunk() {
         guard
-            let data = BluetoothManager.dataToSend,
-            let characteristic = BluetoothManager.transferCharacteristic,
+            let data              = BluetoothManager.dataToSend,
+            let characteristic    = BluetoothManager.transferCharacteristic,
             let peripheralManager = BluetoothManager.peripheralManager
         else { return }
 
-        // All chunks sent — transmit end-of-message marker.
         if BluetoothManager.sendDataIndex >= data.count {
             guard let eomData = "EOM".data(using: .utf8) else { return }
             peripheralManager.updateValue(eomData, for: characteristic, onSubscribedCentrals: nil)
-            BluetoothManager.dataToSend = nil
+            BluetoothManager.dataToSend    = nil
             BluetoothManager.sendDataIndex = 0
             return
         }
@@ -215,27 +202,17 @@ extension BluetoothManager {
         )
         let chunk = data.subdata(in: BluetoothManager.sendDataIndex..<endIndex)
 
-        let didSend = peripheralManager.updateValue(
-            chunk,
-            for: characteristic,
-            onSubscribedCentrals: nil
-        )
-
+        let didSend = peripheralManager.updateValue(chunk, for: characteristic, onSubscribedCentrals: nil)
         if didSend {
             BluetoothManager.sendDataIndex = endIndex
             sendNextChunk()
-            // If didSend == false, peripheralManagerIsReady(toUpdateSubscribers:)
-            // will call sendNextChunk() once the queue drains.
         }
+        // If didSend == false, peripheralManagerIsReady(toUpdateSubscribers:) resumes.
     }
 
     // MARK: - Data Receiving
 
     /// Appends an incoming chunk to the receive buffer, or flushes it on `EOM`.
-    ///
-    /// Called from `PeripheralManagerDelegateHandler.peripheralManager(_:didReceiveWrite:)`.
-    ///
-    /// - Parameter data: A single BLE write value.
     public static func handleReceivedData(_ data: Data) {
         if let marker = String(data: data, encoding: .utf8), marker == "EOM" {
             guard !receivedDataBuffer.isEmpty else { return }
@@ -246,15 +223,12 @@ extension BluetoothManager {
         }
     }
 
-    // MARK: - Peripheral Manager Callbacks (forwarded from delegate handler)
+    // MARK: - Peripheral Manager Callbacks
 
-    /// Forwards a peripheral manager state update to ``peripheralStatePublisher``.
     public static func peripheralManagerDidUpdateState(_ state: CBManagerState) {
         peripheralStateSubject?.send(state)
     }
 
-    /// Called when the peripheral manager is ready to send more data.
-    /// Resumes chunked transmission if a send is in progress.
     public static func peripheralManagerIsReadyToSend() {
         guard
             let data = dataToSend,
