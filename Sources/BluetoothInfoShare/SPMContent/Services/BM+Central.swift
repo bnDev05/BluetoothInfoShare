@@ -147,7 +147,7 @@ extension BluetoothManager: CBPeripheralDelegate {
         }
         guard let value = characteristic.value else { return }
         print("[BluetoothInfoShare] didUpdateValueFor: \(value.count) bytes received.")
-        BluetoothManager.handleReceivedData(value)
+        BluetoothManager.handleNotifyData(value)
     }
 
     public func peripheral(

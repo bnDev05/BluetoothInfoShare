@@ -68,7 +68,7 @@ public final class PeripheralManagerDelegateHandler: NSObject, CBPeripheralManag
     ) {
         for request in requests {
             if let value = request.value {
-                BluetoothManager.handleReceivedData(value)
+                BluetoothManager.handleWriteData(value)
             }
             peripheral.respond(to: request, withResult: .success)
         }
