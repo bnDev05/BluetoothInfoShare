@@ -55,6 +55,8 @@ extension BluetoothManager {
     public static var sendDataIndex      = 0
     public static let chunkSize          = 182
     public static var receivedDataBuffer = Data()
+    /// True when all chunks sent but EOM updateValue returned false and needs retry.
+    public static var eomPending         = false
 
     // MARK: - Setup
 
@@ -133,22 +135,47 @@ extension BluetoothManager {
 
     public func sendNextChunk() {
         guard
-            let data              = BluetoothManager.dataToSend,
             let characteristic    = BluetoothManager.transferCharacteristic,
             let peripheralManager = BluetoothManager.peripheralManager
         else {
-            print("[BluetoothInfoShare] sendNextChunk: missing data/characteristic/manager.")
+            print("[BluetoothInfoShare] sendNextChunk: missing characteristic/manager.")
             return
         }
 
+        // Retry a previously failed EOM send.
+        if BluetoothManager.eomPending {
+            guard let eomData = "EOM".data(using: .utf8) else { return }
+            let sent = peripheralManager.updateValue(
+                eomData, for: characteristic, onSubscribedCentrals: nil
+            )
+            print("[BluetoothInfoShare] EOM retry sent: \(sent)")
+            if sent {
+                BluetoothManager.eomPending    = false
+                BluetoothManager.dataToSend    = nil
+                BluetoothManager.sendDataIndex = 0
+            }
+            // If still false, peripheralManagerIsReadyToSend will call us again.
+            return
+        }
+
+        guard let data = BluetoothManager.dataToSend else { return }
+
+        // All chunks sent — send EOM marker.
         if BluetoothManager.sendDataIndex >= data.count {
             guard let eomData = "EOM".data(using: .utf8) else { return }
             let sent = peripheralManager.updateValue(
                 eomData, for: characteristic, onSubscribedCentrals: nil
             )
             print("[BluetoothInfoShare] EOM sent: \(sent)")
-            BluetoothManager.dataToSend    = nil
-            BluetoothManager.sendDataIndex = 0
+            if sent {
+                BluetoothManager.dataToSend    = nil
+                BluetoothManager.sendDataIndex = 0
+                BluetoothManager.eomPending    = false
+            } else {
+                // Mark EOM as pending — do NOT clear dataToSend/sendDataIndex
+                // so peripheralManagerIsReadyToSend can retry via this same path.
+                BluetoothManager.eomPending = true
+            }
             return
         }
 
@@ -166,7 +193,7 @@ extension BluetoothManager {
             BluetoothManager.sendDataIndex = endIndex
             sendNextChunk()
         }
-        // If didSend == false, peripheralManagerIsReady resumes.
+        // If didSend == false, peripheralManagerIsReady resumes via sendNextChunk.
     }
 
     // MARK: - Data Receiving (peripheral ← central via write)
@@ -190,7 +217,9 @@ extension BluetoothManager {
     }
 
     public static func peripheralManagerIsReadyToSend() {
-        guard let data = dataToSend, sendDataIndex < data.count else { return }
-        BluetoothManager.shared.sendNextChunk()
+        // Resume if chunks remain OR if EOM failed and needs a retry.
+        if eomPending || (dataToSend != nil && sendDataIndex < (dataToSend?.count ?? 0)) {
+            BluetoothManager.shared.sendNextChunk()
+        }
     }
 }
