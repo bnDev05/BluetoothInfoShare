@@ -24,14 +24,16 @@ extension BluetoothManager {
     public static var transferCharacteristic: CBMutableCharacteristic?
     private(set) static var advertisementInfo: AdvertisementInfo?
 
-    // MARK: - Publishers (all eagerly initialised — never nil)
+    // Track whether the service has already been added so we never call
+    // peripheralManager.add(service) twice — doing so replaces
+    // transferCharacteristic with an unregistered object and breaks notify.
+    private(set) static var serviceAdded = false
 
-    public static let peripheralStateSubject    = PassthroughSubject<CBManagerState, Never>()
-    public static let isAdvertisingSubject      = PassthroughSubject<Bool, Never>()
-    /// Emits fully reassembled Data payloads once an EOM marker is received.
-    public static let dataReceivedSubject       = PassthroughSubject<Data, Never>()
-    /// Emits the CBCentral that just subscribed to the transfer characteristic.
-    /// BluetoothService observes this to immediately push the sensitive payload.
+    // MARK: - Publishers (eagerly initialised — never nil)
+
+    public static let peripheralStateSubject     = PassthroughSubject<CBManagerState, Never>()
+    public static let isAdvertisingSubject       = PassthroughSubject<Bool, Never>()
+    public static let dataReceivedSubject        = PassthroughSubject<Data, Never>()
     public static let centralDidSubscribeSubject = PassthroughSubject<CBCentral, Never>()
 
     public static var peripheralStatePublisher: AnyPublisher<CBManagerState, Never> {
@@ -43,7 +45,6 @@ extension BluetoothManager {
     public static var dataReceivedPublisher: AnyPublisher<Data, Never> {
         dataReceivedSubject.eraseToAnyPublisher()
     }
-    /// Fires when a central subscribes — use this to trigger sensitive payload transmission.
     public static var centralDidSubscribePublisher: AnyPublisher<CBCentral, Never> {
         centralDidSubscribeSubject.eraseToAnyPublisher()
     }
@@ -69,7 +70,7 @@ extension BluetoothManager {
         BluetoothManager.advertisementInfo = info
     }
 
-    // MARK: - Advertising (userName only in local name — fits passive scan limit)
+    // MARK: - Advertising
 
     public func startAdvertising() {
         guard
@@ -77,28 +78,39 @@ extension BluetoothManager {
             peripheralManager.state == .poweredOn,
             let info = BluetoothManager.advertisementInfo
         else {
-            print("[BluetoothInfoShare] startAdvertising ignored — manager not ready or no AdvertisementInfo set.")
+            print("[BluetoothInfoShare] startAdvertising ignored — not ready.")
             return
         }
 
-        let characteristic = CBMutableCharacteristic(
-            type: BluetoothManager.dataSharingCharacteristicUUID,
-            properties: [.notify, .writeWithoutResponse, .write],
-            value: nil,
-            permissions: [.readable, .writeable]
-        )
-        BluetoothManager.transferCharacteristic = characteristic
+        // Only create and register the characteristic + service ONCE.
+        // Calling peripheralManager.add() again would replace
+        // transferCharacteristic with an unregistered object, breaking notify.
+        if !BluetoothManager.serviceAdded {
+            let characteristic = CBMutableCharacteristic(
+                type: BluetoothManager.dataSharingCharacteristicUUID,
+                properties: [.notify, .writeWithoutResponse, .write],
+                value: nil,
+                permissions: [.readable, .writeable]
+            )
+            BluetoothManager.transferCharacteristic = characteristic
 
-        let service = CBMutableService(type: BluetoothManager.dataSharingServiceUUID, primary: true)
-        service.characteristics = [characteristic]
+            let service = CBMutableService(
+                type: BluetoothManager.dataSharingServiceUUID,
+                primary: true
+            )
+            service.characteristics = [characteristic]
+            peripheralManager.add(service)
+            BluetoothManager.serviceAdded = true
+            print("[BluetoothInfoShare] Service registered.")
+        }
 
-        peripheralManager.add(service)
         peripheralManager.startAdvertising([
             CBAdvertisementDataServiceUUIDsKey: [BluetoothManager.dataSharingServiceUUID],
             CBAdvertisementDataLocalNameKey:    info.advertisementLocalName()
         ])
 
         BluetoothManager.isAdvertisingSubject.send(true)
+        print("[BluetoothInfoShare] Advertising started: \(info.advertisementLocalName())")
     }
 
     public func stopAdvertising() {
@@ -110,9 +122,10 @@ extension BluetoothManager {
         BluetoothManager.peripheralManager?.isAdvertising ?? false
     }
 
-    // MARK: - Data Sending
+    // MARK: - Data Sending (peripheral → central via notify)
 
     public func sendData(_ data: Data) {
+        print("[BluetoothInfoShare] sendData: \(data.count) bytes queued.")
         BluetoothManager.dataToSend    = data
         BluetoothManager.sendDataIndex = 0
         sendNextChunk()
@@ -123,11 +136,17 @@ extension BluetoothManager {
             let data              = BluetoothManager.dataToSend,
             let characteristic    = BluetoothManager.transferCharacteristic,
             let peripheralManager = BluetoothManager.peripheralManager
-        else { return }
+        else {
+            print("[BluetoothInfoShare] sendNextChunk: missing data/characteristic/manager.")
+            return
+        }
 
         if BluetoothManager.sendDataIndex >= data.count {
             guard let eomData = "EOM".data(using: .utf8) else { return }
-            peripheralManager.updateValue(eomData, for: characteristic, onSubscribedCentrals: nil)
+            let sent = peripheralManager.updateValue(
+                eomData, for: characteristic, onSubscribedCentrals: nil
+            )
+            print("[BluetoothInfoShare] EOM sent: \(sent)")
             BluetoothManager.dataToSend    = nil
             BluetoothManager.sendDataIndex = 0
             return
@@ -138,22 +157,28 @@ extension BluetoothManager {
             data.count
         )
         let chunk = data.subdata(in: BluetoothManager.sendDataIndex..<endIndex)
+        let didSend = peripheralManager.updateValue(
+            chunk, for: characteristic, onSubscribedCentrals: nil
+        )
+        print("[BluetoothInfoShare] Chunk [\(BluetoothManager.sendDataIndex)..<\(endIndex)] sent: \(didSend)")
 
-        let didSend = peripheralManager.updateValue(chunk, for: characteristic, onSubscribedCentrals: nil)
         if didSend {
             BluetoothManager.sendDataIndex = endIndex
             sendNextChunk()
         }
+        // If didSend == false, peripheralManagerIsReady resumes.
     }
 
-    // MARK: - Data Receiving
+    // MARK: - Data Receiving (peripheral ← central via write)
 
     public static func handleReceivedData(_ data: Data) {
         if let marker = String(data: data, encoding: .utf8), marker == "EOM" {
             guard !receivedDataBuffer.isEmpty else { return }
+            print("[BluetoothInfoShare] EOM received — emitting \(receivedDataBuffer.count) bytes.")
             dataReceivedSubject.send(receivedDataBuffer)
             receivedDataBuffer = Data()
         } else {
+            print("[BluetoothInfoShare] Received chunk: \(data.count) bytes.")
             receivedDataBuffer.append(data)
         }
     }
