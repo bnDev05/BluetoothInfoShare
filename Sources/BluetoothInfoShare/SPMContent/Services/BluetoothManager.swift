@@ -45,10 +45,15 @@ public final class BluetoothManager: NSObject {
     public let connectionErrorPublisher: AnyPublisher<(CBPeripheral, Error), Never>
     let connectionErrorSubject = PassthroughSubject<(CBPeripheral, Error), Never>()
 
-    /// Fires when the central has discovered the GATT characteristic and is
-    /// ready to write. BluetoothService observes this to send the sensitive payload.
+    /// Fires when the central has discovered the GATT characteristic and
+    /// the peripheral has confirmed the notify subscription — safe to write.
     public let centralGATTReadyPublisher: AnyPublisher<CBPeripheral, Never>
     let centralGATTReadySubject = PassthroughSubject<CBPeripheral, Never>()
+
+    /// Fires when the peripheral confirms our write (didWriteValueFor, no error).
+    /// BluetoothService uses this to know both directions are done and can disconnect.
+    public let centralWriteCompletePublisher: AnyPublisher<CBPeripheral, Never>
+    let centralWriteCompleteSubject = PassthroughSubject<CBPeripheral, Never>()
 
     // MARK: - Init
 
@@ -59,7 +64,8 @@ public final class BluetoothManager: NSObject {
         connectedPublisher       = connectedSubject.eraseToAnyPublisher()
         disconnectedPublisher    = disconnectedSubject.eraseToAnyPublisher()
         connectionErrorPublisher = connectionErrorSubject.eraseToAnyPublisher()
-        centralGATTReadyPublisher = centralGATTReadySubject.eraseToAnyPublisher()
+        centralGATTReadyPublisher     = centralGATTReadySubject.eraseToAnyPublisher()
+        centralWriteCompletePublisher = centralWriteCompleteSubject.eraseToAnyPublisher()
         super.init()
         centralManager = CBCentralManager(delegate: self, queue: bluetoothQueue)
     }

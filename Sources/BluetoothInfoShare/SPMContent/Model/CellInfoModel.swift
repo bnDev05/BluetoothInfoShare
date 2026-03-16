@@ -106,6 +106,20 @@ public struct CellInfoModel: Identifiable, Equatable {
         )
     }
 
+    /// Returns a new model with sensitive fields replaced.
+    /// Use this to restore cached fields when a device reappears after a list clear.
+    public func withSensitiveFields(lastFour: String, objectID: String, userID: String) -> CellInfoModel {
+        CellInfoModel(
+            id:                 self.id,
+            name:               self.name,
+            lastFourCardNumber: lastFour,
+            objectID:           objectID,
+            userID:             userID,
+            peripheral:         self.peripheral,
+            isConnected:        self.isConnected
+        )
+    }
+
     // MARK: - Internal memberwise init
 
     private init(

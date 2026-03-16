@@ -42,14 +42,13 @@ extension BluetoothManager: CBCentralManagerDelegate {
         error: Error?
     ) {
         print("[BluetoothInfoShare] didFailToConnect: \(peripheral.identifier) — \(error?.localizedDescription ?? "unknown")")
-        let connectionError = error ?? NSError(
-            domain: "com.bluetoothinfoshare",
-            code: -1,
+        let err = error ?? NSError(
+            domain: "com.bluetoothinfoshare", code: -1,
             userInfo: [NSLocalizedDescriptionKey: "Connection failed with no error detail."]
         )
-        connectionErrorSubject.send((peripheral, connectionError))
-        if let continuation = connectContinuations.removeValue(forKey: peripheral.identifier) {
-            continuation.resume(throwing: connectionError)
+        connectionErrorSubject.send((peripheral, err))
+        if let c = connectContinuations.removeValue(forKey: peripheral.identifier) {
+            c.resume(throwing: err)
         }
     }
 
@@ -60,8 +59,8 @@ extension BluetoothManager: CBCentralManagerDelegate {
     ) {
         print("[BluetoothInfoShare] didDisconnect: \(peripheral.identifier) error=\(error?.localizedDescription ?? "none")")
         disconnectedSubject.send(peripheral)
-        if let continuation = disconnectContinuations.removeValue(forKey: peripheral.identifier) {
-            continuation.resume(returning: peripheral)
+        if let c = disconnectContinuations.removeValue(forKey: peripheral.identifier) {
+            c.resume(returning: peripheral)
         }
         if let error = error {
             connectionErrorSubject.send((peripheral, error))
@@ -84,13 +83,10 @@ extension BluetoothManager: CBPeripheralDelegate {
         guard let service = peripheral.services?.first(where: {
             $0.uuid == BluetoothManager.dataSharingServiceUUID
         }) else {
-            print("[BluetoothInfoShare] dataSharingService NOT found — peripheral may not have added it yet.")
+            print("[BluetoothInfoShare] dataSharingService NOT found.")
             return
         }
-        peripheral.discoverCharacteristics(
-            [BluetoothManager.dataSharingCharacteristicUUID],
-            for: service
-        )
+        peripheral.discoverCharacteristics([BluetoothManager.dataSharingCharacteristicUUID], for: service)
     }
 
     public func peripheral(
@@ -112,18 +108,20 @@ extension BluetoothManager: CBPeripheralDelegate {
             return
         }
 
+        // Subscribe to notifications. centralGATTReadySubject fires only after
+        // the subscription is CONFIRMED in didUpdateNotificationStateFor,
+        // ensuring the peripheral has processed the subscription before we write.
         if characteristic.properties.contains(.notify) {
             peripheral.setNotifyValue(true, for: characteristic)
             print("[BluetoothInfoShare] setNotifyValue(true) sent.")
-        }
-
-        // 300ms delay — let peripheral confirm the subscription before we write.
-        bluetoothQueue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            print("[BluetoothInfoShare] centralGATTReady firing for \(peripheral.identifier)")
-            self?.centralGATTReadySubject.send(peripheral)
+        } else {
+            // No notify support — signal ready immediately for write-only path.
+            centralGATTReadySubject.send(peripheral)
         }
     }
 
+    /// Fires when the peripheral confirms our subscription request.
+    /// THIS is the correct moment to write — not a fixed timer.
     public func peripheral(
         _ peripheral: CBPeripheral,
         didUpdateNotificationStateFor characteristic: CBCharacteristic,
@@ -131,8 +129,12 @@ extension BluetoothManager: CBPeripheralDelegate {
     ) {
         if let error = error {
             print("[BluetoothInfoShare] didUpdateNotificationState ERROR: \(error.localizedDescription)")
-        } else {
-            print("[BluetoothInfoShare] Notify state confirmed: \(characteristic.isNotifying)")
+            return
+        }
+        print("[BluetoothInfoShare] Notify state confirmed: \(characteristic.isNotifying) — signalling GATT ready.")
+        if characteristic.isNotifying {
+            // Subscription confirmed — safe to write now.
+            centralGATTReadySubject.send(peripheral)
         }
     }
 
@@ -159,6 +161,8 @@ extension BluetoothManager: CBPeripheralDelegate {
             print("[BluetoothInfoShare] didWriteValueFor ERROR: \(error.localizedDescription)")
         } else {
             print("[BluetoothInfoShare] didWriteValueFor: write confirmed.")
+            // Write confirmed — signal that central-side exchange is complete.
+            centralWriteCompleteSubject.send(peripheral)
         }
     }
 }
